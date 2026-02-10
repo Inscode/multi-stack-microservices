@@ -31,10 +31,10 @@ builder.Services.AddSwaggerGen();
 // if (string.IsNullOrEmpty(pwd))
 //     throw new Exception("DB_PASSWORD is not set");
 
-// DB
+//DB
 
 var connstr = builder.Configuration.GetConnectionString("PaymentDb");
-// connstr = connstr.Replace("${DB_PASSWORD}", pwd);
+// connstr = connstr.Replace("DB_PASSWORD", pwd);
 
 builder.Services.AddDbContext<PaymentDbContext>(opt => opt.UseNpgsql(connstr));
 builder.Services.AddScoped<IValidator<CreatePaymentRequest>, CreatePaymentRequestValidator>();
