@@ -17,6 +17,8 @@ public class PaymentDbContext : DbContext
 
             e.Property(x => x.Amount).HasColumnType("numeric(12, 2)");
             e.Property(x => x.status).HasMaxLength(20);
+            e.HasIndex(x => x.OrderId)
+            .IsUnique();
         });
     }
 
