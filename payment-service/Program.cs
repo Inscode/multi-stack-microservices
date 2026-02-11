@@ -8,6 +8,7 @@ using Serilog;
 using FluentValidation;
 using PaymentService.Validation;
 using System.ComponentModel.DataAnnotations;
+using System.Net;
 // using PaymentService.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,14 +32,21 @@ builder.Services.AddSwaggerGen();
 // if (string.IsNullOrEmpty(pwd))
 //     throw new Exception("DB_PASSWORD is not set");
 
-// DB
+//DB
 
 var connstr = builder.Configuration.GetConnectionString("PaymentDb");
-// connstr = connstr.Replace("${DB_PASSWORD}", pwd);
+// connstr = connstr.Replace("DB_PASSWORD", pwd);
 
 builder.Services.AddDbContext<PaymentDbContext>(opt => opt.UseNpgsql(connstr));
 builder.Services.AddScoped<IValidator<CreatePaymentRequest>, CreatePaymentRequestValidator>();
-// builder.Services.AddSingleton<InMemoryPaymentStore>();
+
+// add http client for order service
+builder.Services.AddHttpClient("OrderService", client =>
+{
+    var baseUrl = builder.Configuration["Services:OrderService:BaseUrl"];
+    client.BaseAddress = new Uri(baseUrl!);
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
 
 var app = builder.Build();
 
@@ -83,7 +91,7 @@ app.MapGet("/health", () =>
 
 // create payment
 
-app.MapPost("/api/payments", async (CreatePaymentRequest req, IValidator<CreatePaymentRequest> validator, PaymentDbContext db)=>
+app.MapPost("/api/payments", async (CreatePaymentRequest req, IValidator<CreatePaymentRequest> validator, PaymentDbContext db, IHttpClientFactory httpClientFactory)=>
 {
 
      var result = await validator.ValidateAsync(req);
@@ -104,7 +112,7 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req, IValidator<CreateP
      {
          OrderId = req.OrderId,
          Amount = req.Amount,
-         status = "SUCCESS",
+         Status = "SUCCESS",
          CreatedAtUtc = DateTime.UtcNow
      };
 
@@ -124,9 +132,45 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req, IValidator<CreateP
             error = "Payment already exists for this order"
         });
     }
+
+    // Call order service to mark paid
+    var client = httpClientFactory.CreateClient("OrderService");
+
+    try
+    {
+        var resp = await client.PatchAsync($"/api/orders/{req.OrderId}/paid", null);
+
+        if (resp.StatusCode == HttpStatusCode.NotFound)
+        {
+            payment.Status = "ORDER_UPDATE_FAILED";
+            await db.SaveChangesAsync();
+
+            Log.Warning("Order not found in order service={OrderId}", req.OrderId);
+            return Results.BadRequest(new {error = "Order not found"});
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            payment.Status = "ORDER_UPDATE_FAILED";
+            await db.SaveChangesAsync();
+
+            Log.Warning("Order service update failed , OrderId={OrderId}, StatusCode={StatusCode}", req.OrderId, (int)resp.StatusCode);
+
+            return Results.StatusCode(502);
+        }
+    }
+    catch (TaskCanceledException ex)
+    {
+        payment.Status = "ORDER_UPDATE_FAILED";
+        await db.SaveChangesAsync();
+
+        Log.Warning(ex, "Order Service unreachable. OrderId={OrderId}", req.OrderId);
+        return Results.StatusCode(502);
+    }
+
      
      Log.Information("Payment created successfully: PaymentId={PaymentId}, OrderId={OrderId}", payment.Id, payment.OrderId);
-     var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.status, payment.CreatedAtUtc);
+     var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.Status, payment.CreatedAtUtc);
      return Results.Created($"/api/payments/{payment.Id}", response);
 
 });
@@ -158,7 +202,7 @@ app.MapGet("/api/payments/{id:int}", async (int id, PaymentDbContext db ) =>
         Log.Information("Payment not found: PaymentId = {PaymentId}", id);
         return Results.NotFound(new {error = "Payment not found"});
     }
-    var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.status, payment.CreatedAtUtc);
+    var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.Status, payment.CreatedAtUtc);
 
     return Results.Ok(response);
 });
