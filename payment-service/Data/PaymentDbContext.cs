@@ -14,7 +14,8 @@ public class PaymentDbContext : DbContext
         {
             e.ToTable("payments");
             e.HasKey( x => x.Id);
-
+            e.Property(x => x.IdempotencyKey).HasMaxLength(100);
+            e.HasIndex(x => x.IdempotencyKey).IsUnique();
             e.Property(x => x.Amount).HasColumnType("numeric(12, 2)");
             e.Property(x => x.Status).HasMaxLength(20);
             e.HasIndex(x => x.OrderId)
