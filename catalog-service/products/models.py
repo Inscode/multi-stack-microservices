@@ -6,5 +6,5 @@ class Product(models.Model):
     stock_quantity = models.PositiveIntegerField(default=0)
 
 
-    def __str__(self):
+    def __str__(self):  
         return f"{self.name} (${self.price})"
