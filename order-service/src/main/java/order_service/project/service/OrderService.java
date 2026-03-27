@@ -28,7 +28,7 @@ public class OrderService {
 //        BigDecimal unitPrice = new BigDecimal("100.00");
 
         ProductDto product = catalogWebClient.get()
-                .uri("/{id}", request.productId())
+                .uri("/{id}/", request.productId())
                 .retrieve()
                 .bodyToMono(ProductDto.class)
                 .block();
