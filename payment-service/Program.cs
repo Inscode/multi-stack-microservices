@@ -14,6 +14,7 @@ using Polly;
 using Polly.Timeout;
 using Polly.CircuitBreaker;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 
 // using PaymentService.Storage;
 
@@ -21,7 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Use serilog ( reads config from appsettings.json)
 
-builder.Host.UseSerilog((ctx, services, cfg) => 
+builder.Host.UseSerilog((ctx, services, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration)
     .ReadFrom.Services(services)
     .Enrich.FromLogContext()
@@ -43,6 +44,14 @@ builder.Services.AddSwaggerGen();
 var connstr = builder.Configuration.GetConnectionString("PaymentDb");
 // connstr = connstr.Replace("DB_PASSWORD", pwd);
 
+if (string.IsNullOrEmpty(connstr))
+{
+    Console.WriteLine("❌ ERROR: Connection string 'PaymentDb' not found in Secrets or AppSettings!");
+}
+else
+{
+    Console.WriteLine($"✅ Found connection string starting with: {connstr.Substring(0, 15)}...");
+}
 builder.Services.AddDbContext<PaymentDbContext>(opt => opt.UseNpgsql(connstr));
 builder.Services.AddScoped<IValidator<CreatePaymentRequest>, CreatePaymentRequestValidator>();
 
@@ -85,15 +94,15 @@ if (app.Environment.IsDevelopment())
 }
 
 // app.UseHttpsRedirection();
-app.MapGet("/" , ()  => "Hello from payment service");
+app.MapGet("/", () => "Hello from payment service");
 
 
 
-app.MapGet("/health", () => 
+app.MapGet("/health", () =>
 {
     Log.Information("Health check called");
-    Results.Ok(new {status = "ok"});
-    
+    Results.Ok(new { status = "ok" });
+
 });
 
 // app.MapPost("/api/payments", (CreatePaymentRequest req, InMemoryPaymentStore  store) =>
@@ -116,36 +125,36 @@ app.MapGet("/health", () =>
 
 // create payment
 
-app.MapPost("/api/payments", async (CreatePaymentRequest req,[FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IValidator<CreatePaymentRequest> validator, PaymentDbContext db, IHttpClientFactory httpClientFactory, HttpContext http)=>
+app.MapPost("/api/payments", async (CreatePaymentRequest req, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IValidator<CreatePaymentRequest> validator, PaymentDbContext db, IHttpClientFactory httpClientFactory, HttpContext http) =>
 {
 
-     var result = await validator.ValidateAsync(req);
+    var result = await validator.ValidateAsync(req);
 
-     if  (!result.IsValid)
+    if (!result.IsValid)
     {
         return Results.BadRequest(new
         {
             error = "Validation Failed",
-            details = result.Errors.Select(e => new { field = e.PropertyName, message = e.ErrorMessage})
+            details = result.Errors.Select(e => new { field = e.PropertyName, message = e.ErrorMessage })
         });
     }
 
     // Idempotency key here
 
     if (string.IsNullOrWhiteSpace(idempotencyKey))
-        return Results.BadRequest(new { error = "Idempotency-key header is required"});
+        return Results.BadRequest(new { error = "Idempotency-key header is required" });
 
     // Idempotent replay check here
     var existing = await db.Payments.FirstOrDefaultAsync(p => p.IdempotencyKey == idempotencyKey);
 
-    if ( existing is not null )
+    if (existing is not null)
     {
         Log.Information("Idempotency replay: key={key}, payment id = {paymentId}", idempotencyKey, existing.Id);
 
         var existingResponse = new PaymentResponse(
             existing.Id, existing.OrderId, existing.Amount, existing.Status, existing.CreatedAtUtc
         );
-      // Common practice: return 200 OK on replay
+        // Common practice: return 200 OK on replay
         return Results.Ok(existingResponse);
     }
 
@@ -153,20 +162,20 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req,[FromHeader(Name = 
     req.OrderId, req.Amount, idempotencyKey);
 
 
-     var payment = new Payment
-     {
-         OrderId = req.OrderId,
-         Amount = req.Amount,
-         Status = "SUCCESS",
-         IdempotencyKey = idempotencyKey,
-         CreatedAtUtc = DateTime.UtcNow
-     };
-
-     db.Payments.Add(payment);
-
-     try
+    var payment = new Payment
     {
-       await db.SaveChangesAsync(); 
+        OrderId = req.OrderId,
+        Amount = req.Amount,
+        Status = "SUCCESS",
+        IdempotencyKey = idempotencyKey,
+        CreatedAtUtc = DateTime.UtcNow
+    };
+
+    db.Payments.Add(payment);
+
+    try
+    {
+        await db.SaveChangesAsync();
     }
 
     catch (DbUpdateException ex)
@@ -192,7 +201,7 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req,[FromHeader(Name = 
             await db.SaveChangesAsync();
 
             Log.Warning("Order not found in order service={OrderId}", req.OrderId);
-            return Results.BadRequest(new {error = "Order not found"});
+            return Results.BadRequest(new { error = "Order not found" });
         }
 
         if (!resp.IsSuccessStatusCode)
@@ -230,10 +239,10 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req,[FromHeader(Name = 
         return Results.StatusCode(502);
     }
 
-     
-     Log.Information("Payment created successfully: PaymentId={PaymentId}, OrderId={OrderId}", payment.Id, payment.OrderId);
-     var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.Status, payment.CreatedAtUtc);
-     return Results.Created($"/api/payments/{payment.Id}", response);
+
+    Log.Information("Payment created successfully: PaymentId={PaymentId}, OrderId={OrderId}", payment.Id, payment.OrderId);
+    var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.Status, payment.CreatedAtUtc);
+    return Results.Created($"/api/payments/{payment.Id}", response);
 
 });
 
@@ -255,19 +264,67 @@ app.MapPost("/api/payments", async (CreatePaymentRequest req,[FromHeader(Name = 
 
 // GET PAYMENT BY ID
 
-app.MapGet("/api/payments/{id:int}", async (int id, PaymentDbContext db ) =>
+app.MapGet("/api/payments/{id:int}", async (int id, PaymentDbContext db) =>
 {
     Log.Information("Get payment requested: PaymentId={PaymentId}", id);
     var payment = await db.Payments.FindAsync(id);
-    if (payment is null) 
+    if (payment is null)
     {
         Log.Information("Payment not found: PaymentId = {PaymentId}", id);
-        return Results.NotFound(new {error = "Payment not found"});
+        return Results.NotFound(new { error = "Payment not found" });
     }
     var response = new PaymentResponse(payment.Id, payment.OrderId, payment.Amount, payment.Status, payment.CreatedAtUtc);
 
     return Results.Ok(response);
 });
+
+app.MapGet("/api/payments", async (
+    PaymentDbContext db,
+    CancellationToken ct,
+    [FromQuery] int pageNumber = 1,
+    [FromQuery] int pageSize = 20,
+    [FromQuery] string? status = null,
+    [FromQuery] int? orderId = null)
+     =>
+{
+    Log.Information("Get all payments requested, PageNumber={PageNumber}, PageSize={PageSize}, OrderId={OrderId}", pageNumber, pageSize, status, orderId);
+
+    if (pageNumber <= 0) pageNumber = 1;
+    if (pageSize <= 0 || pageSize > 100) pageSize = 20;
+
+    var query = db.Payments.AsNoTracking().AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        query = query.Where(pageNumber => pageNumber.Status == status);
+    }
+
+    if (orderId.HasValue)
+    {
+        query = query.Where(p => p.OrderId == orderId.Value);
+    }
+
+    var totalRecords = await query.CountAsync(ct);
+
+    var payments = await query
+        .OrderByDescending(p => p.CreatedAtUtc)
+        .Skip((pageNumber - 1) * pageSize)
+        .Take(pageSize)
+        .Select(p => new PaymentResponse(p.Id, p.OrderId, p.Amount, p.Status, p.CreatedAtUtc))
+        .ToListAsync(ct);
+
+    var response = new
+    {
+        PageNumber = pageNumber,
+        PageSize = pageSize,
+        TotalRecords = totalRecords,
+        Data = payments
+    };
+
+    return Results.Ok(response);
+})
+.WithName("GetAllPayments")
+.Produces(StatusCodes.Status200OK);
 
 app.Run();
 
