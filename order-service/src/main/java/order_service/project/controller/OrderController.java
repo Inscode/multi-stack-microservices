@@ -33,4 +33,10 @@ public class OrderController {
     public ResponseEntity<List<Order>> getAll() {
         return ResponseEntity.ok(orderService.getAllOrders());
     }
+
+    @PatchMapping("/{id}/paid")
+    public ResponseEntity<Void> markAsPaid(@PathVariable Long id) {
+        orderService.updateOrderStatusToPaid(id);
+        return ResponseEntity.noContent().build();
+    }
  }

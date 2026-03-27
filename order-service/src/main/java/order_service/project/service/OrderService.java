@@ -6,7 +6,9 @@ import order_service.project.config.WebClientConfig;
 import order_service.project.domain.Order;
 import order_service.project.dto.CreateOrderRequest;
 import order_service.project.dto.ProductDto;
+import order_service.project.exception.ResourceNotFoundException;
 import order_service.project.repository.OrderRepository;
+import org.springframework.boot.context.config.ConfigDataResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -55,5 +57,21 @@ public class OrderService {
 
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
+    }
+
+    @Transactional
+    public void updateOrderStatusToPaid(Long id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("order not found with id: " + id));
+
+        if ("PENDING".equals(order.getStatus())) {
+            order.setStatus("PAID");
+            orderRepository.save(order);
+        } else if ("PAID".equals(order.getStatus())) {
+            // Idempotency : do nothing
+            return;
+        } else {
+            throw new IllegalStateException("Cannot pay for order in status: " + order.getStatus());
+        }
     }
 }
