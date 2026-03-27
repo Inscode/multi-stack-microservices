@@ -1,7 +1,6 @@
 package order_service.project.controller;
 
 import jakarta.validation.Valid;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import order_service.project.domain.Order;
 import order_service.project.dto.CreateOrderRequest;
@@ -10,7 +9,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.nio.channels.ReadPendingException;
 
 @RestController
 @RequestMapping("/api/orders")
